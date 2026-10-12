@@ -35,6 +35,8 @@ ecommerce-api/
 ├── routes/
 ├── uploads/
 ├── validations/
+├── database/
+│   └── ecommerce_db.sql
 ├── app.js
 ├── package.json
 ├── .env.example
@@ -67,7 +69,7 @@ ecommerce-api/
 
 4. Configure your database connection and JWT secret in `.env`.
 
-5. Create the MySQL database configured by `DB_NAME` and ensure the required tables exist.
+5. Create the database tables by importing `database/ecommerce_db.sql` into your MySQL server using phpMyAdmin or another MySQL client.
 
 6. Start the API:
 
