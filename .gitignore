@@ -2,3 +2,4 @@
 .env
 uploads/*
 !uploads/.gitkeep
+database/ecommerce_test.sql
