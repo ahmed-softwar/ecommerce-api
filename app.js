@@ -1,5 +1,7 @@
 
 const express = require("express");
+const helmet = require("helmet");
+const cors = require("cors");
 require("dotenv").config();
 
 const authRoutes = require("./routes/authRoutes");
@@ -11,8 +13,18 @@ const orderRoutes = require("./routes/orderRoutes");
 
 const app = express();
 
-// Middleware
-app.use(express.json());
+// Security middleware
+app.use(helmet());
+
+// CORS configuration
+app.use(cors({
+    origin: process.env.CLIENT_URL || "*",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// Request middleware
+app.use(express.json({ limit: "1mb" }));
 
 // Home route
 app.get("/", (req, res) => {
@@ -39,6 +51,18 @@ app.use((req, res) => {
 // Global error handler
 app.use((error, req, res, next) => {
     console.error(error);
+
+    if (error.type === "entity.too.large") {
+        return res.status(413).json({
+            message: "Request body is too large"
+        });
+    }
+
+    if (error instanceof SyntaxError && error.status === 400 && "body" in error) {
+        return res.status(400).json({
+            message: "Invalid JSON format"
+        });
+    }
 
     return res.status(500).json({
         message: "Internal server error"

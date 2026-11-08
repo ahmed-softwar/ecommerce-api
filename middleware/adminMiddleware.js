@@ -12,7 +12,7 @@ const adminMiddleware = (req, res, next) => {
         });
     }
 
-    next();
+    return next();
 };
 
 module.exports = adminMiddleware;

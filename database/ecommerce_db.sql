@@ -1,10 +1,11 @@
-```sql
+
 CREATE DATABASE IF NOT EXISTS ecommerce_db
 CHARACTER SET utf8mb4
 COLLATE utf8mb4_general_ci;
 
 USE ecommerce_db;
 
+-- Categories
 CREATE TABLE IF NOT EXISTS categories (
     id INT NOT NULL AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS categories (
     UNIQUE KEY unique_category_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Users
 CREATE TABLE IF NOT EXISTS users (
     id INT NOT NULL AUTO_INCREMENT,
     fname VARCHAR(100) NOT NULL,
@@ -26,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY unique_user_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Products
 CREATE TABLE IF NOT EXISTS products (
     id INT NOT NULL AUTO_INCREMENT,
     category_id INT NOT NULL,
@@ -34,6 +37,7 @@ CREATE TABLE IF NOT EXISTS products (
     price DECIMAL(10,2) NOT NULL,
     stock INT NOT NULL DEFAULT 0,
     image VARCHAR(255) DEFAULT NULL,
+    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_products_category_id (category_id),
@@ -41,6 +45,7 @@ CREATE TABLE IF NOT EXISTS products (
         FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Carts
 CREATE TABLE IF NOT EXISTS carts (
     id INT NOT NULL AUTO_INCREMENT,
     user_id INT NOT NULL,
@@ -51,6 +56,7 @@ CREATE TABLE IF NOT EXISTS carts (
         FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Cart Items
 CREATE TABLE IF NOT EXISTS cart_items (
     id INT NOT NULL AUTO_INCREMENT,
     cart_id INT NOT NULL,
@@ -66,6 +72,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
         FOREIGN KEY (product_id) REFERENCES products(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Orders
 CREATE TABLE IF NOT EXISTS orders (
     id INT NOT NULL AUTO_INCREMENT,
     user_id INT NOT NULL,
@@ -84,6 +91,7 @@ CREATE TABLE IF NOT EXISTS orders (
         FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Order Items
 CREATE TABLE IF NOT EXISTS order_items (
     id INT NOT NULL AUTO_INCREMENT,
     order_id INT NOT NULL,
@@ -98,4 +106,3 @@ CREATE TABLE IF NOT EXISTS order_items (
     CONSTRAINT fk_order_items_product
         FOREIGN KEY (product_id) REFERENCES products(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-```

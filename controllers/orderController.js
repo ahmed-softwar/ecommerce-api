@@ -1,6 +1,34 @@
 
 const pool = require("../config/database");
 
+const MAX_INT = 2147483647;
+const MAX_PRICE_CENTS = 9999999999;
+
+// Validate MySQL INT IDs
+const isValidId = id => {
+    const value = String(id);
+
+    return (
+        /^[1-9]\d*$/.test(value) &&
+        Number.isSafeInteger(Number(value)) &&
+        Number(value) <= MAX_INT
+    );
+};
+
+// Convert DECIMAL(10,2) price to cents without floating-point errors
+const priceToCents = price => {
+    const value = String(price);
+
+    if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+        return null;
+    }
+
+    const [whole, fraction = ""] = value.split(".");
+
+    return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+};
+
+
 // Get orders for the logged-in user
 const getMyOrders = (req, res, next) => {
     const userId = req.user.id;
@@ -62,6 +90,7 @@ const createOrder = (req, res, next) => {
 
             const rollback = (statusCode, message) => {
                 if (transactionFinished) return;
+
                 transactionFinished = true;
 
                 connection.rollback(rollbackError => {
@@ -75,6 +104,7 @@ const createOrder = (req, res, next) => {
 
             const fail = error => {
                 if (transactionFinished) return;
+
                 transactionFinished = true;
 
                 connection.rollback(rollbackError => {
@@ -102,12 +132,12 @@ const createOrder = (req, res, next) => {
 
                 const itemsSql = `
                     SELECT
-                        ci.id AS cart_item_id,
                         ci.product_id,
                         ci.quantity,
                         p.name,
                         p.price,
-                        p.stock
+                        p.stock,
+                        p.is_deleted
                     FROM cart_items ci
                     INNER JOIN products p ON ci.product_id = p.id
                     WHERE ci.cart_id = ?
@@ -121,18 +151,57 @@ const createOrder = (req, res, next) => {
                         return rollback(400, "Your cart is empty");
                     }
 
-                    let totalPrice = 0;
+                    let totalPriceCents = 0;
 
                     for (const item of items) {
-                        if (item.quantity > item.stock) {
+                        if (Number(item.is_deleted) === 1) {
+                            return rollback(
+                                400,
+                                `Product is no longer available: ${item.name}`
+                            );
+                        }
+
+                        const quantity = Number(item.quantity);
+                        const stock = Number(item.stock);
+                        const priceCents = priceToCents(item.price);
+
+                        if (
+                            !Number.isSafeInteger(quantity) ||
+                            quantity <= 0 ||
+                            quantity > MAX_INT
+                        ) {
+                            return fail(
+                                new Error("Invalid cart item quantity in database")
+                            );
+                        }
+
+                        if (priceCents === null) {
+                            return fail(
+                                new Error("Invalid product price in database")
+                            );
+                        }
+
+                        if (quantity > stock) {
                             return rollback(
                                 400,
                                 `Not enough stock for product: ${item.name}`
                             );
                         }
 
-                        totalPrice += Number(item.price) * item.quantity;
+                        totalPriceCents += priceCents * quantity;
+
+                        if (
+                            !Number.isSafeInteger(totalPriceCents) ||
+                            totalPriceCents > MAX_PRICE_CENTS
+                        ) {
+                            return rollback(
+                                400,
+                                "Order total exceeds the allowed limit"
+                            );
+                        }
                     }
+
+                    const totalPrice = (totalPriceCents / 100).toFixed(2);
 
                     const orderSql = `
                         INSERT INTO orders (user_id, total_price)
@@ -141,7 +210,7 @@ const createOrder = (req, res, next) => {
 
                     connection.execute(
                         orderSql,
-                        [userId, totalPrice.toFixed(2)],
+                        [userId, totalPrice],
                         (error, result) => {
                             if (error) return fail(error);
 
@@ -157,7 +226,9 @@ const createOrder = (req, res, next) => {
                                 const stockSql = `
                                     UPDATE products
                                     SET stock = stock - ?
-                                    WHERE id = ? AND stock >= ?
+                                    WHERE id = ?
+                                    AND stock >= ?
+                                    AND is_deleted = 0
                                 `;
 
                                 connection.execute(
@@ -173,7 +244,7 @@ const createOrder = (req, res, next) => {
                                         if (stockResult.affectedRows !== 1) {
                                             return rollback(
                                                 400,
-                                                `Not enough stock for product: ${item.name}`
+                                                `Product is unavailable or stock is insufficient: ${item.name}`
                                             );
                                         }
 
@@ -193,6 +264,7 @@ const createOrder = (req, res, next) => {
                                             ],
                                             error => {
                                                 if (error) return fail(error);
+
                                                 processItem(index + 1);
                                             }
                                         );
@@ -216,7 +288,7 @@ const createOrder = (req, res, next) => {
                                             return res.status(201).json({
                                                 message: "Order created successfully",
                                                 orderId,
-                                                totalPrice: Number(totalPrice.toFixed(2)),
+                                                totalPrice: totalPriceCents / 100,
                                                 status: "pending"
                                             });
                                         });
@@ -237,13 +309,15 @@ const createOrder = (req, res, next) => {
 // Cancel a pending order belonging to the logged-in user
 const cancelOrder = (req, res, next) => {
     const userId = req.user.id;
-    const orderId = Number(req.params.id);
+    const { id } = req.params;
 
-    if (!Number.isInteger(orderId) || orderId <= 0) {
+    if (!isValidId(id)) {
         return res.status(400).json({
             message: "A valid order ID is required"
         });
     }
+
+    const orderId = Number(id);
 
     pool.getConnection((error, connection) => {
         if (error) return next(error);
@@ -258,6 +332,7 @@ const cancelOrder = (req, res, next) => {
 
             const rollback = (statusCode, message) => {
                 if (transactionFinished) return;
+
                 transactionFinished = true;
 
                 connection.rollback(rollbackError => {
@@ -271,6 +346,7 @@ const cancelOrder = (req, res, next) => {
 
             const fail = error => {
                 if (transactionFinished) return;
+
                 transactionFinished = true;
 
                 connection.rollback(rollbackError => {
@@ -321,31 +397,65 @@ const cancelOrder = (req, res, next) => {
                                 }
 
                                 const item = items[index];
+                                const quantity = Number(item.quantity);
+
+                                if (
+                                    !Number.isSafeInteger(quantity) ||
+                                    quantity <= 0 ||
+                                    quantity > MAX_INT
+                                ) {
+                                    return fail(
+                                        new Error("Invalid order item quantity in database")
+                                    );
+                                }
+
+                                const restoreSql = `
+                                    UPDATE products
+                                    SET stock = stock + ?
+                                    WHERE id = ? AND stock <= ?
+                                `;
 
                                 connection.execute(
-                                    `
-                                        UPDATE products
-                                        SET stock = stock + ?
-                                        WHERE id = ?
-                                    `,
-                                    [item.quantity, item.product_id],
-                                    error => {
+                                    restoreSql,
+                                    [
+                                        quantity,
+                                        item.product_id,
+                                        MAX_INT - quantity
+                                    ],
+                                    (error, result) => {
                                         if (error) return fail(error);
+
+                                        if (result.affectedRows !== 1) {
+                                            return rollback(
+                                                409,
+                                                "Unable to restore product stock"
+                                            );
+                                        }
+
                                         restoreStock(index + 1);
                                     }
                                 );
                             };
 
                             const updateOrderStatus = () => {
+                                const updateSql = `
+                                    UPDATE orders
+                                    SET status = 'cancelled'
+                                    WHERE id = ? AND user_id = ?
+                                `;
+
                                 connection.execute(
-                                    `
-                                        UPDATE orders
-                                        SET status = 'cancelled'
-                                        WHERE id = ? AND user_id = ?
-                                    `,
+                                    updateSql,
                                     [orderId, userId],
-                                    error => {
+                                    (error, result) => {
                                         if (error) return fail(error);
+
+                                        if (result.affectedRows !== 1) {
+                                            return rollback(
+                                                409,
+                                                "Unable to cancel this order"
+                                            );
+                                        }
 
                                         connection.commit(error => {
                                             if (error) return fail(error);

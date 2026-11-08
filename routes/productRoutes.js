@@ -11,17 +11,19 @@ const {
     getProductById,
     createProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    restoreProduct
 } = require("../controllers/productController");
 
 const {
-    productValidation
+    productValidation,
+    productQueryValidation
 } = require("../validations/productValidation");
 
 const productIdValidation = [
     param("id")
-        .isInt({ min: 1 })
-        .withMessage("Product ID must be a positive integer")
+        .isInt({ min: 1, max: 2147483647 })
+        .withMessage("Product ID must be a valid positive integer")
 ];
 
 const validateRequest = (req, res, next) => {
@@ -36,11 +38,18 @@ const validateRequest = (req, res, next) => {
         });
     }
 
-    next();
+    return next();
 };
 
-router.get("/", getProducts);
+// Get products with search, filtering and pagination
+router.get(
+    "/",
+    productQueryValidation,
+    validateRequest,
+    getProducts
+);
 
+// Get product by ID
 router.get(
     "/:id",
     productIdValidation,
@@ -48,6 +57,7 @@ router.get(
     getProductById
 );
 
+// Create product
 router.post(
     "/",
     authMiddleware,
@@ -57,6 +67,7 @@ router.post(
     createProduct
 );
 
+// Update product
 router.put(
     "/:id",
     authMiddleware,
@@ -67,6 +78,7 @@ router.put(
     updateProduct
 );
 
+// Delete product (Soft Delete)
 router.delete(
     "/:id",
     authMiddleware,
@@ -74,6 +86,16 @@ router.delete(
     productIdValidation,
     validateRequest,
     deleteProduct
+);
+
+// Restore deleted product
+router.patch(
+    "/:id/restore",
+    authMiddleware,
+    adminMiddleware,
+    productIdValidation,
+    validateRequest,
+    restoreProduct
 );
 
 module.exports = router;

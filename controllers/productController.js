@@ -1,41 +1,167 @@
 
 const connection = require("../config/database");
 
-
-// Get all products
-const getProducts = (req, res, next) => {
-    const sql = `
-        SELECT
-            p.id,
-            p.name,
-            p.description,
-            p.price,
-            p.stock,
-            p.image,
-            p.category_id,
-            c.name AS category_name,
-            p.created_at
-        FROM products p
-        INNER JOIN categories c ON p.category_id = c.id
-        ORDER BY p.id DESC
-    `;
-
-    connection.execute(sql, (error, data) => {
-        if (error) {
-            return next(error);
-        }
-
-        return res.status(200).json({
-            data: data
-        });
-    });
+// Validate positive integer IDs
+const isValidId = (id) => {
+    return /^[1-9]\d*$/.test(String(id)) &&
+        Number.isSafeInteger(Number(id)) &&
+        Number(id) <= 2147483647;
 };
 
+// Validate product price
+const isValidPrice = (price) => {
+    if (
+        typeof price !== "number" &&
+        typeof price !== "string"
+    ) {
+        return false;
+    }
+
+    const value = String(price).trim();
+
+    if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+        return false;
+    }
+
+    const number = Number(value);
+
+    return Number.isFinite(number) &&
+        number > 0 &&
+        number <= 99999999.99;
+};
+
+// Validate stock
+const isValidStock = (stock) => {
+    if (
+        typeof stock !== "number" &&
+        typeof stock !== "string"
+    ) {
+        return false;
+    }
+
+    const value = String(stock).trim();
+
+    if (!/^\d+$/.test(value)) {
+        return false;
+    }
+
+    const number = Number(value);
+
+    return Number.isSafeInteger(number) &&
+        number <= 2147483647;
+};
+
+// Get products with search, filtering and pagination
+const getProducts = (req, res, next) => {
+    const {
+        q,
+        category_id,
+        min_price,
+        max_price
+    } = req.query;
+
+    const page = req.query.page === undefined
+        ? 1
+        : Number(req.query.page);
+
+    const limit = req.query.limit === undefined
+        ? 10
+        : Number(req.query.limit);
+
+    const offset = (page - 1) * limit;
+
+    let conditions = ["p.is_deleted = 0"];
+    let values = [];
+
+    if (q) {
+        conditions.push("p.name LIKE ?");
+        values.push(`%${q}%`);
+    }
+
+    if (category_id !== undefined) {
+        conditions.push("p.category_id = ?");
+        values.push(Number(category_id));
+    }
+
+    if (min_price !== undefined) {
+        conditions.push("p.price >= ?");
+        values.push(Number(min_price));
+    }
+
+    if (max_price !== undefined) {
+        conditions.push("p.price <= ?");
+        values.push(Number(max_price));
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const countSql = `
+        SELECT COUNT(*) AS total
+        FROM products p
+        ${whereClause}
+    `;
+
+    connection.execute(
+        countSql,
+        values,
+        (error, countResult) => {
+            if (error) {
+                return next(error);
+            }
+
+            const total = Number(countResult[0].total);
+
+            const sql = `
+                SELECT
+                    p.id,
+                    p.name,
+                    p.description,
+                    p.price,
+                    p.stock,
+                    p.image,
+                    p.category_id,
+                    c.name AS category_name,
+                    p.created_at
+                FROM products p
+                INNER JOIN categories c ON p.category_id = c.id
+                ${whereClause}
+                ORDER BY p.id DESC
+                LIMIT ? OFFSET ?
+            `;
+
+            connection.execute(
+                sql,
+                [...values, limit, offset],
+                (error, data) => {
+                    if (error) {
+                        return next(error);
+                    }
+
+                    return res.status(200).json({
+                        data,
+                        pagination: {
+                            total,
+                            page,
+                            limit,
+                            totalPages: Math.ceil(total / limit)
+                        }
+                    });
+                }
+            );
+        }
+    );
+};
 
 // Get product by ID
 const getProductById = (req, res, next) => {
     const { id } = req.params;
 
+    if (!isValidId(id)) {
+        return res.status(400).json({
+            message: "Invalid product ID"
+        });
+    }
+
     const sql = `
         SELECT
             p.id,
@@ -49,7 +175,7 @@ const getProductById = (req, res, next) => {
             p.created_at
         FROM products p
         INNER JOIN categories c ON p.category_id = c.id
-        WHERE p.id = ?
+        WHERE p.id = ? AND p.is_deleted = 0
     `;
 
     connection.execute(sql, [id], (error, data) => {
@@ -69,7 +195,6 @@ const getProductById = (req, res, next) => {
     });
 };
 
-
 // Create product
 const createProduct = (req, res, next) => {
     const {
@@ -82,7 +207,6 @@ const createProduct = (req, res, next) => {
     } = req.body;
 
     if (
-        !name ||
         typeof name !== "string" ||
         name.trim() === ""
     ) {
@@ -91,37 +215,25 @@ const createProduct = (req, res, next) => {
         });
     }
 
-    if (
-        price === undefined ||
-        price === null ||
-        price === "" ||
-        !Number.isFinite(Number(price)) ||
-        Number(price) <= 0
-    ) {
+    if (name.trim().length > 255) {
         return res.status(400).json({
-            message: "Price must be a number greater than zero"
+            message: "Product name must not exceed 255 characters"
         });
     }
 
-    if (
-        stock === undefined ||
-        stock === null ||
-        stock === "" ||
-        !Number.isInteger(Number(stock)) ||
-        Number(stock) < 0
-    ) {
+    if (!isValidPrice(price)) {
+        return res.status(400).json({
+            message: "Price must be greater than zero with up to 2 decimal places"
+        });
+    }
+
+    if (!isValidStock(stock)) {
         return res.status(400).json({
             message: "Stock must be a non-negative integer"
         });
     }
 
-    if (
-        category_id === undefined ||
-        category_id === null ||
-        category_id === "" ||
-        !Number.isInteger(Number(category_id)) ||
-        Number(category_id) <= 0
-    ) {
+    if (!isValidId(category_id)) {
         return res.status(400).json({
             message: "A valid category_id is required"
         });
@@ -148,15 +260,22 @@ const createProduct = (req, res, next) => {
     }
 
     const productName = name.trim();
+
     const productDescription =
         description === undefined || description === null
             ? null
-            : description.trim();
+            : description.trim() || null;
 
     const productImage =
-        image === undefined || image === null || image.trim() === ""
+        image === undefined || image === null
             ? null
-            : image.trim();
+            : image.trim() || null;
+
+    if (productImage && productImage.length > 255) {
+        return res.status(400).json({
+            message: "Image filename must not exceed 255 characters"
+        });
+    }
 
     const sql = `
         INSERT INTO products
@@ -193,10 +312,10 @@ const createProduct = (req, res, next) => {
     );
 };
 
-
 // Update product
 const updateProduct = (req, res, next) => {
     const { id } = req.params;
+
     const {
         name,
         description,
@@ -206,8 +325,13 @@ const updateProduct = (req, res, next) => {
         image
     } = req.body;
 
+    if (!isValidId(id)) {
+        return res.status(400).json({
+            message: "Invalid product ID"
+        });
+    }
+
     if (
-        !name ||
         typeof name !== "string" ||
         name.trim() === ""
     ) {
@@ -216,37 +340,25 @@ const updateProduct = (req, res, next) => {
         });
     }
 
-    if (
-        price === undefined ||
-        price === null ||
-        price === "" ||
-        !Number.isFinite(Number(price)) ||
-        Number(price) <= 0
-    ) {
+    if (name.trim().length > 255) {
         return res.status(400).json({
-            message: "Price must be a number greater than zero"
+            message: "Product name must not exceed 255 characters"
         });
     }
 
-    if (
-        stock === undefined ||
-        stock === null ||
-        stock === "" ||
-        !Number.isInteger(Number(stock)) ||
-        Number(stock) < 0
-    ) {
+    if (!isValidPrice(price)) {
+        return res.status(400).json({
+            message: "Price must be greater than zero with up to 2 decimal places"
+        });
+    }
+
+    if (!isValidStock(stock)) {
         return res.status(400).json({
             message: "Stock must be a non-negative integer"
         });
     }
 
-    if (
-        category_id === undefined ||
-        category_id === null ||
-        category_id === "" ||
-        !Number.isInteger(Number(category_id)) ||
-        Number(category_id) <= 0
-    ) {
+    if (!isValidId(category_id)) {
         return res.status(400).json({
             message: "A valid category_id is required"
         });
@@ -273,15 +385,22 @@ const updateProduct = (req, res, next) => {
     }
 
     const productName = name.trim();
+
     const productDescription =
         description === undefined || description === null
             ? null
-            : description.trim();
+            : description.trim() || null;
 
     const productImage =
-        image === undefined || image === null || image.trim() === ""
+        image === undefined || image === null
             ? null
-            : image.trim();
+            : image.trim() || null;
+
+    if (productImage && productImage.length > 255) {
+        return res.status(400).json({
+            message: "Image filename must not exceed 255 characters"
+        });
+    }
 
     const sql = `
         UPDATE products
@@ -292,7 +411,7 @@ const updateProduct = (req, res, next) => {
             price = ?,
             stock = ?,
             image = ?
-        WHERE id = ?
+        WHERE id = ? AND is_deleted = 0
     `;
 
     connection.execute(
@@ -321,7 +440,7 @@ const updateProduct = (req, res, next) => {
                 const checkSql = `
                     SELECT id
                     FROM products
-                    WHERE id = ?
+                    WHERE id = ? AND is_deleted = 0
                 `;
 
                 return connection.execute(
@@ -352,27 +471,24 @@ const updateProduct = (req, res, next) => {
     );
 };
 
-
-// Delete product
+// Soft delete product
 const deleteProduct = (req, res, next) => {
     const { id } = req.params;
 
+    if (!isValidId(id)) {
+        return res.status(400).json({
+            message: "Invalid product ID"
+        });
+    }
+
     const sql = `
-        DELETE FROM products
-        WHERE id = ?
+        UPDATE products
+        SET is_deleted = 1
+        WHERE id = ? AND is_deleted = 0
     `;
 
     connection.execute(sql, [id], (error, data) => {
         if (error) {
-            if (
-                error.code === "ER_ROW_IS_REFERENCED_2" ||
-                error.code === "ER_ROW_IS_REFERENCED"
-            ) {
-                return res.status(409).json({
-                    message: "Cannot delete this product because it is used in an order"
-                });
-            }
-
             return next(error);
         }
 
@@ -388,11 +504,44 @@ const deleteProduct = (req, res, next) => {
     });
 };
 
+// Restore deleted product
+const restoreProduct = (req, res, next) => {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+        return res.status(400).json({
+            message: "Invalid product ID"
+        });
+    }
+
+    const sql = `
+        UPDATE products
+        SET is_deleted = 0
+        WHERE id = ? AND is_deleted = 1
+    `;
+
+    connection.execute(sql, [id], (error, data) => {
+        if (error) {
+            return next(error);
+        }
+
+        if (data.affectedRows === 0) {
+            return res.status(404).json({
+                message: "Deleted product not found"
+            });
+        }
+
+        return res.status(200).json({
+            message: "Product restored successfully"
+        });
+    });
+};
 
 module.exports = {
     getProducts,
     getProductById,
     createProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    restoreProduct
 };

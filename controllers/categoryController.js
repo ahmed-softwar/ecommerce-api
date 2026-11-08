@@ -1,6 +1,14 @@
 
 const connection = require("../config/database");
 
+const MAX_INT = 2147483647;
+
+const isValidId = (id) => {
+    return /^[1-9]\d*$/.test(String(id)) &&
+        Number.isSafeInteger(Number(id)) &&
+        Number(id) <= MAX_INT;
+};
+
 // Get all categories
 const getCategories = (req, res, next) => {
     const sql = `
@@ -15,18 +23,16 @@ const getCategories = (req, res, next) => {
         }
 
         return res.status(200).json({
-            data: data
+            data
         });
     });
 };
-
 
 // Get one category by ID
 const getCategoryById = (req, res, next) => {
     const { id } = req.params;
 
-    if (!/^[1-9]\d*$/.test(id) ||
-        !Number.isSafeInteger(Number(id))) {
+    if (!isValidId(id)) {
         return res.status(400).json({
             message: "Invalid category ID"
         });
@@ -54,7 +60,6 @@ const getCategoryById = (req, res, next) => {
         });
     });
 };
-
 
 // Create a new category
 const createCategory = (req, res, next) => {
@@ -93,36 +98,30 @@ const createCategory = (req, res, next) => {
         VALUES (?, ?)
     `;
 
-    connection.execute(
-        sql,
-        [name, description],
-        (error, data) => {
-            if (error) {
-                if (error.code === "ER_DUP_ENTRY") {
-                    return res.status(409).json({
-                        message: "Category name already exists"
-                    });
-                }
-
-                return next(error);
+    connection.execute(sql, [name, description], (error, data) => {
+        if (error) {
+            if (error.code === "ER_DUP_ENTRY") {
+                return res.status(409).json({
+                    message: "Category name already exists"
+                });
             }
 
-            return res.status(201).json({
-                message: "Category created successfully",
-                categoryId: data.insertId
-            });
+            return next(error);
         }
-    );
-};
 
+        return res.status(201).json({
+            message: "Category created successfully",
+            categoryId: data.insertId
+        });
+    });
+};
 
 // Update a category
 const updateCategory = (req, res, next) => {
     const { id } = req.params;
     let { name, description } = req.body;
 
-    if (!/^[1-9]\d*$/.test(id) ||
-        !Number.isSafeInteger(Number(id))) {
+    if (!isValidId(id)) {
         return res.status(400).json({
             message: "Invalid category ID"
         });
@@ -162,63 +161,52 @@ const updateCategory = (req, res, next) => {
         WHERE id = ?
     `;
 
-    connection.execute(
-        sql,
-        [name, description, id],
-        (error, data) => {
-            if (error) {
-                if (error.code === "ER_DUP_ENTRY") {
-                    return res.status(409).json({
-                        message: "Category name already exists"
-                    });
-                }
-
-                return next(error);
-            }
-
-            if (data.affectedRows > 0) {
-                return res.status(200).json({
-                    message: "Category updated successfully"
+    connection.execute(sql, [name, description, id], (error, data) => {
+        if (error) {
+            if (error.code === "ER_DUP_ENTRY") {
+                return res.status(409).json({
+                    message: "Category name already exists"
                 });
             }
 
-            // Check whether the category exists
-            const checkSql = `
-                SELECT id
-                FROM categories
-                WHERE id = ?
-            `;
-
-            connection.execute(
-                checkSql,
-                [id],
-                (checkError, checkData) => {
-                    if (checkError) {
-                        return next(checkError);
-                    }
-
-                    if (checkData.length === 0) {
-                        return res.status(404).json({
-                            message: "Category not found"
-                        });
-                    }
-
-                    return res.status(200).json({
-                        message: "Category updated successfully"
-                    });
-                }
-            );
+            return next(error);
         }
-    );
-};
 
+        if (data.affectedRows > 0) {
+            return res.status(200).json({
+                message: "Category updated successfully"
+            });
+        }
+
+        const checkSql = `
+            SELECT id
+            FROM categories
+            WHERE id = ?
+        `;
+
+        connection.execute(checkSql, [id], (checkError, checkData) => {
+            if (checkError) {
+                return next(checkError);
+            }
+
+            if (checkData.length === 0) {
+                return res.status(404).json({
+                    message: "Category not found"
+                });
+            }
+
+            return res.status(200).json({
+                message: "Category updated successfully"
+            });
+        });
+    });
+};
 
 // Delete a category
 const deleteCategory = (req, res, next) => {
     const { id } = req.params;
 
-    if (!/^[1-9]\d*$/.test(id) ||
-        !Number.isSafeInteger(Number(id))) {
+    if (!isValidId(id)) {
         return res.status(400).json({
             message: "Invalid category ID"
         });
@@ -254,7 +242,6 @@ const deleteCategory = (req, res, next) => {
         });
     });
 };
-
 
 module.exports = {
     getCategories,

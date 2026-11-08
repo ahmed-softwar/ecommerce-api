@@ -2,7 +2,7 @@
 const connection = require("../config/database");
 const bcrypt = require("bcrypt");
 
-const getMyProfile = (req, res) => {
+const getMyProfile = (req, res, next) => {
     const userId = req.user.id;
 
     const sql = `
@@ -13,9 +13,7 @@ const getMyProfile = (req, res) => {
 
     connection.execute(sql, [userId], (error, results) => {
         if (error) {
-            return res.status(500).json({
-                message: "Internal server error"
-            });
+            return next(error);
         }
 
         if (results.length === 0) {
@@ -30,11 +28,15 @@ const getMyProfile = (req, res) => {
     });
 };
 
-const updateMyProfile = (req, res) => {
+const updateMyProfile = (req, res, next) => {
     const userId = req.user.id;
     const { fname, lname, email } = req.body;
 
-    if (!fname || !lname || !email) {
+    if (
+        !fname || !fname.trim() ||
+        !lname || !lname.trim() ||
+        !email || !email.trim()
+    ) {
         return res.status(400).json({
             message: "First name, last name and email are required"
         });
@@ -48,12 +50,10 @@ const updateMyProfile = (req, res) => {
 
     connection.execute(
         checkEmailSql,
-        [email, userId],
+        [email.trim(), userId],
         (error, results) => {
             if (error) {
-                return res.status(500).json({
-                    message: "Internal server error"
-                });
+                return next(error);
             }
 
             if (results.length > 0) {
@@ -70,18 +70,44 @@ const updateMyProfile = (req, res) => {
 
             connection.execute(
                 updateSql,
-                [fname, lname, email, userId],
+                [fname.trim(), lname.trim(), email.trim(), userId],
                 (updateError, updateResults) => {
                     if (updateError) {
-                        return res.status(500).json({
-                            message: "Internal server error"
-                        });
+                        if (updateError.code === "ER_DUP_ENTRY") {
+                            return res.status(409).json({
+                                message: "Email already exists"
+                            });
+                        }
+
+                        return next(updateError);
                     }
 
                     if (updateResults.affectedRows === 0) {
-                        return res.status(404).json({
-                            message: "User not found"
-                        });
+                        const checkUserSql = `
+                            SELECT id
+                            FROM users
+                            WHERE id = ?
+                        `;
+
+                        return connection.execute(
+                            checkUserSql,
+                            [userId],
+                            (checkError, userResults) => {
+                                if (checkError) {
+                                    return next(checkError);
+                                }
+
+                                if (userResults.length === 0) {
+                                    return res.status(404).json({
+                                        message: "User not found"
+                                    });
+                                }
+
+                                return res.status(200).json({
+                                    message: "Profile updated successfully"
+                                });
+                            }
+                        );
                     }
 
                     return res.status(200).json({
@@ -93,7 +119,7 @@ const updateMyProfile = (req, res) => {
     );
 };
 
-const changeMyPassword = (req, res) => {
+const changeMyPassword = (req, res, next) => {
     const userId = req.user.id;
     const { currentPassword, newPassword, confirmPassword } = req.body;
 
@@ -119,9 +145,7 @@ const changeMyPassword = (req, res) => {
 
     connection.execute(sql, [userId], async (error, results) => {
         if (error) {
-            return res.status(500).json({
-                message: "Internal server error"
-            });
+            return next(error);
         }
 
         if (results.length === 0) {
@@ -147,10 +171,14 @@ const changeMyPassword = (req, res) => {
             connection.execute(
                 "UPDATE users SET password = ? WHERE id = ?",
                 [hashedPassword, userId],
-                (updateError) => {
+                (updateError, updateResults) => {
                     if (updateError) {
-                        return res.status(500).json({
-                            message: "Internal server error"
+                        return next(updateError);
+                    }
+
+                    if (updateResults.affectedRows === 0) {
+                        return res.status(404).json({
+                            message: "User not found"
                         });
                     }
 
@@ -160,9 +188,7 @@ const changeMyPassword = (req, res) => {
                 }
             );
         } catch (error) {
-            return res.status(500).json({
-                message: "Internal server error"
-            });
+            return next(error);
         }
     });
 };

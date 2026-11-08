@@ -3,6 +3,8 @@ const { body } = require("express-validator");
 
 const categoryValidation = [
     body("name")
+        .isString()
+        .withMessage("Category name must be a string")
         .trim()
         .notEmpty()
         .withMessage("Category name is required")

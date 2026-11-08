@@ -19,8 +19,8 @@ const {
 
 const cartItemIdValidation = [
     param("id")
-        .isInt({ min: 1 })
-        .withMessage("Cart item ID must be a positive integer")
+        .isInt({ min: 1, max: 2147483647 })
+        .withMessage("Cart item ID must be a valid positive integer")
 ];
 
 const validateRequest = (req, res, next) => {
@@ -35,7 +35,7 @@ const validateRequest = (req, res, next) => {
         });
     }
 
-    next();
+    return next();
 };
 
 router.get("/", authMiddleware, getCart);

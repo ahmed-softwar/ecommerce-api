@@ -3,6 +3,8 @@ const { body } = require("express-validator");
 
 const updateProfileValidation = [
     body("fname")
+        .isString()
+        .withMessage("First name must be a string")
         .trim()
         .notEmpty()
         .withMessage("First name is required")
@@ -10,6 +12,8 @@ const updateProfileValidation = [
         .withMessage("First name must not exceed 100 characters"),
 
     body("lname")
+        .isString()
+        .withMessage("Last name must be a string")
         .trim()
         .notEmpty()
         .withMessage("Last name is required")
@@ -17,6 +21,8 @@ const updateProfileValidation = [
         .withMessage("Last name must not exceed 100 characters"),
 
     body("email")
+        .isString()
+        .withMessage("Email must be a string")
         .trim()
         .notEmpty()
         .withMessage("Email is required")
@@ -28,16 +34,22 @@ const updateProfileValidation = [
 
 const changePasswordValidation = [
     body("currentPassword")
+        .isString()
+        .withMessage("Current password must be a string")
         .notEmpty()
         .withMessage("Current password is required"),
 
     body("newPassword")
         .isString()
         .withMessage("New password must be a string")
+        .notEmpty()
+        .withMessage("New password is required")
         .isLength({ min: 8 })
         .withMessage("New password must be at least 8 characters"),
 
     body("confirmPassword")
+        .isString()
+        .withMessage("Password confirmation must be a string")
         .notEmpty()
         .withMessage("Password confirmation is required")
         .custom((value, { req }) => {

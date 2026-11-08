@@ -18,6 +18,10 @@ const authMiddleware = (req, res, next) => {
         });
     }
 
+    if (!process.env.JWT_SECRET) {
+        return next(new Error("JWT_SECRET is not configured"));
+    }
+
     const token = parts[1];
 
     try {
@@ -28,7 +32,7 @@ const authMiddleware = (req, res, next) => {
 
         req.user = decoded;
 
-        next();
+        return next();
 
     } catch (error) {
         return res.status(401).json({

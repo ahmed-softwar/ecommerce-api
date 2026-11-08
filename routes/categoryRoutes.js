@@ -1,7 +1,7 @@
 
 const express = require("express");
 const router = express.Router();
-const { validationResult } = require("express-validator");
+const { validationResult, param } = require("express-validator");
 
 const authMiddleware = require("../middleware/authMiddleware");
 const adminMiddleware = require("../middleware/adminMiddleware");
@@ -18,12 +18,10 @@ const {
     categoryValidation
 } = require("../validations/categoryValidation");
 
-const { param } = require("express-validator");
-
 const categoryIdValidation = [
     param("id")
-        .isInt({ min: 1 })
-        .withMessage("Category ID must be a positive integer")
+        .isInt({ min: 1, max: 2147483647 })
+        .withMessage("Category ID must be a valid positive integer")
 ];
 
 const validateRequest = (req, res, next) => {
@@ -38,7 +36,7 @@ const validateRequest = (req, res, next) => {
         });
     }
 
-    next();
+    return next();
 };
 
 router.get("/", getCategories);
